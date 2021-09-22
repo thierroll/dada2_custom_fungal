@@ -14,6 +14,8 @@ library(reshape2)
 read1 <- list.files(pattern="reads1.fastq",recursive=TRUE,include.dirs=TRUE)
 read2 <- list.files(pattern="reads2.fastq",recursive=TRUE,include.dirs=TRUE)
 
+
+###################Changing maxEE and truncQ
 ####run 100 permutations of truncQ and maxEE
 for (i in c(1:10)){
   for (j in c(1:10)){
@@ -152,7 +154,7 @@ mergers=c(mergers1,mergers2,mergers3,mergers4,mergers5,mergers6,mergers7,mergers
 
 seqtab <- makeSequenceTable(mergers)
 
-### remove chimeras and save
+### remove chimeras and save file
 if (ncol(seqtab)>0) {
   seqtab_nochim <- removeBimeraDenovo(seqtab,method="consensus",multithread=TRUE)
 } else {  #table with zero cols
@@ -161,12 +163,13 @@ if (ncol(seqtab)>0) {
 
 saveRDS(seqtab_nochim,"seqtab.rds")
 
+#reload file
 seqtab_nochim=readRDS("seqtab.rds")
 
+###read in expected sequences
+refseq=read.delim("refseq.txt",sep="\t")  
 
-setwd("/run/user/1000/gvfs/smb-share:server=skimcs,share=castoricenter/Thierry/benchmark_single/dada")
-refseq=read.delim("refseq.txt",sep="\t") 
-
+#reformat otu.tables for graphs
 
 otu=as.data.frame(otu_table(t(seqtab_nochim),taxa_are_rows=TRUE)) %>% tibble::rownames_to_column() %>% 
   mutate(seq=rowname) %>%
@@ -186,28 +189,8 @@ test_filters.sum=test_filters %>%
   slice(1)%>%
   ungroup()
 
-# ggplot(test_filters,aes(x=truncQ))+
-#   facet_grid(cols=vars(maxEE))+
-#   geom_point(aes(y=value,color=reference))+
-#   geom_line(aes(y=value,color=reference))+
-#   geom_point(aes(y=ratio*1e+6),color="black")+
-#   geom_line(aes(y=ratio*1e+6),color="black")+
-#   scale_y_continuous(trans="log10",sec.axis = sec_axis(~./1e+6,name="Ratio"))+
-#   scale_x_continuous(breaks=c(1,2,3,4,5,6,7,8,9,10))
 
-ggplot(test_filters %>% mutate(reference=if_else(reference==T,"Expected sequence","Non-expected sequence")),aes(x=maxEE))+
-  facet_grid(cols=vars(truncQ))+
-  geom_point(aes(y=value,color=reference))+
-  scale_color_discrete(name="")+
-  #geom_point(aes(y=summ),color="black")+
-  geom_line(aes(y=value,color=reference))+
-  scale_y_continuous(trans="log10",breaks=c(1e+4,1e+5,1e+6),limits=c(5e+3,1e+6))+
-  scale_x_continuous(breaks=c(2,4,6,8,10))+
-  theme_bw()+
-  # theme(panel.grid.minor=element_blank())+
-  ylab("Number of reads")+
-  ggtitle("truncQ")
-
+###Figure with total number of reads
 
 ggplot(test_filters.sum,aes(x=maxEE))+
   facet_grid(cols=vars(truncQ))+
@@ -221,6 +204,8 @@ ggplot(test_filters.sum,aes(x=maxEE))+
   ylab("Number of reads")+
   ggtitle("truncQ")
 
+####Figure with proportion of expected reads
+
 ggplot(test_filters.sum,aes(x=maxEE))+
   facet_grid(cols=vars(truncQ))+
   geom_point(aes(y=prop),color="black")+
@@ -233,7 +218,7 @@ ggplot(test_filters.sum,aes(x=maxEE))+
   ggtitle("truncQ")
 
 
-
+####preparation of otu tables for species-specific effects
 test_filters_strains=otu %>% filter(reference==T)%>%select(-rowname,-seq,-reference)%>%
   group_by(strain,fungus) %>% summarise(across(everything(),list(sum))) %>%
   melt(id.vars=c("strain","fungus")) %>%
@@ -241,6 +226,8 @@ test_filters_strains=otu %>% filter(reference==T)%>%select(-rowname,-seq,-refere
 separate(variable,into=c("name","truncQ","maxEE","name2","name3"),sep="[.]",remove=F)%>%
   mutate(truncQ=as.numeric(truncQ),maxEE=as.numeric(maxEE))
 
+
+####Figure for species-specific effects
 ggplot(test_filters_strains,aes(x=maxEE,y=value,color=fungus))+
   facet_grid(cols=vars(truncQ))+
   scale_color_manual(values=fpal,name="Species")+
@@ -253,10 +240,156 @@ ggplot(test_filters_strains,aes(x=maxEE,y=value,color=fungus))+
   ggtitle("truncQ")+
   theme(panel.grid.minor=element_blank())
 
-# ggplot(test_filters_strains,aes(x=truncQ,y=value,color=strain))+
-#   facet_grid(cols=vars(maxEE))+
-#   geom_point()+
-#   scale_y_continuous(trans="log10") +
-#   geom_line()+
-#   scale_x_continuous(breaks=c(1,2,3,4,5,6,7,8,9,10))
+
+
+
+####changing minOverlap
+
+for (i in c(2,8)){
+  
+  filternames1 <-paste("filter1",as.character(i),as.character(i),"fastq",sep=".")
+  filternames2 <-paste("filter2",as.character(i),as.character(i),"fastq",sep=".")
+  out <- filterAndTrim(read1,filternames1,read2,filternames2,maxEE=i,minLen=50,truncQ=i,compress=TRUE,multithread=TRUE)
+}
+
+filter1 <- list.files(pattern="filter1",recursive=TRUE,include.dirs=TRUE)
+filter2 <- list.files(pattern="filter2",recursive=TRUE,include.dirs=TRUE)
+
+sample_names <- filter1
+err1 <- learnErrors(filter1,multithread=TRUE)
+err2 <- learnErrors(filter2,multithread=TRUE)
+derep1 <- lapply(filter1,derepFastq,verbose=TRUE)
+names(derep1)=sample_names
+dada1 <- lapply(derep1,dada,err=err1,multithread=TRUE)
+derep2 <- lapply(filter2,derepFastq,verbose=TRUE)
+names(derep2)=sample_names
+dada2 <- lapply(derep2,dada,err=err2,multithread=TRUE)
+merger.list=c()
+
+for (j in c(2,5,10,12,15,20)){
+  mergers <-mapply(mergePairs,dada1,derep1,dada2,derep2,MoreArgs=list(returnRejects=FALSE,verbose=TRUE,minOverlap=j),SIMPLIFY=FALSE)
+  names(mergers)=paste(names(mergers),as.character(j))
+  merger.list=append(merger.list,mergers)
+}
+
+seqtab <- makeSequenceTable(merger.list)
+
+### remove chimeras and save
+if (ncol(seqtab)>0) {
+  seqtab_nochim <- removeBimeraDenovo(seqtab,method="consensus",multithread=TRUE)
+} else {  #table with zero cols
+  seqtab_nochim <- seqtab
+}
+saveRDS(seqtab_nochim,"seqtab.rds")
+
+
+
+### Prepare Figures
+# Load seqtab
+seqtab_nochim=readRDS("seqtab.rds")
+
+# Load expected sequences
+refseq=read.delim("/run/user/1000/gvfs/smb-share:server=skimcs,share=castoricenter/Thierry/benchmark_single/Code_for_publication/refseq.txt",sep="\t") 
+
+
+# combine seqtab with table with expected sequences
+otu=as.data.frame(otu_table(t(seqtab_nochim),taxa_are_rows=TRUE)) %>% tibble::rownames_to_column() %>% mutate(seq=reverseComplement(rowname,case="upper")) %>%
+  left_join(refseq) %>% mutate(reference=is.na(fungus)==F)
+otu.ref=otu %>%select(-seq,-fungus,-strain,-rowname)
+
+
+
+test_filters_strains=otu %>% filter(reference==T)%>%select(-rowname,-seq,-reference)%>%
+  melt(id.vars=c("strain","fungus")) %>%
+  group_by(fungus,variable)%>%summarise(value=sum(value))%>%
+  ungroup()%>%
+  mutate(filter=if_else(grepl("2.2",variable),"2.2","8.8")) %>%
+  separate(variable,into=c("A","minOverlap"),sep="[ ]",remove=F)%>%
+  mutate(minOverlap=as.numeric(minOverlap))
+
+
+ggplot(test_filters_strains,aes(x=minOverlap,y=value,color=fungus))+
+  facet_grid(cols=vars(filter))+
+  geom_point()+
+  scale_y_continuous(trans="log10") +
+  geom_line()+
+  theme_bw()+
+  ylab("Number of reads")+
+  ggtitle("truncQ")+
+  theme(panel.grid.minor=element_blank())
+
+####Change maxMismatch
+
+for (i in c(2,8)){
+  
+  filternames1 <-paste("filter1",as.character(i),as.character(i),"fastq",sep=".")
+  filternames2 <-paste("filter2",as.character(i),as.character(i),"fastq",sep=".")
+  out <- filterAndTrim(read1,filternames1,read2,filternames2,maxEE=i,minLen=50,truncQ=i,compress=TRUE,multithread=TRUE)
+}
+
+filter1 <- list.files(pattern="filter1",recursive=TRUE,include.dirs=TRUE)
+filter2 <- list.files(pattern="filter2",recursive=TRUE,include.dirs=TRUE)
+
+sample_names <- filter1
+err1 <- learnErrors(filter1,multithread=TRUE)
+err2 <- learnErrors(filter2,multithread=TRUE)
+derep1 <- lapply(filter1,derepFastq,verbose=TRUE)
+names(derep1)=sample_names
+dada1 <- lapply(derep1,dada,err=err1,multithread=TRUE)
+derep2 <- lapply(filter2,derepFastq,verbose=TRUE)
+names(derep2)=sample_names
+dada2 <- lapply(derep2,dada,err=err2,multithread=TRUE)
+merger.list=c()
+
+for (j in c(0:4)){
+  mergers <-mapply(mergePairs,dada1,derep1,dada2,derep2,MoreArgs=list(returnRejects=FALSE,verbose=TRUE,maxMismatch=j),SIMPLIFY=FALSE)
+  names(mergers)=paste(names(mergers),as.character(j))
+  merger.list=append(merger.list,mergers)
+}
+
+seqtab <- makeSequenceTable(merger.list)
+
+### remove chimeras and save
+if (ncol(seqtab)>0) {
+  seqtab_nochim <- removeBimeraDenovo(seqtab,method="consensus",multithread=TRUE)
+} else {  #table with zero cols
+  seqtab_nochim <- seqtab
+}
+saveRDS(seqtab_nochim,"seqtab.rds")
+
+
+
+### Prepare Figures
+# Load seqtab
+seqtab_nochim=readRDS("seqtab.rds")
+
+# Load expected sequences
+refseq=read.delim("/run/user/1000/gvfs/smb-share:server=skimcs,share=castoricenter/Thierry/benchmark_single/Code_for_publication/refseq.txt",sep="\t") 
+
+# combine seqtab with table with expected sequences
+otu=as.data.frame(otu_table(t(seqtab_nochim),taxa_are_rows=TRUE)) %>% tibble::rownames_to_column() %>% mutate(seq=reverseComplement(rowname,case="upper")) %>%
+  left_join(refseq) %>% mutate(reference=is.na(fungus)==F)
+otu.ref=otu %>%select(-seq,-fungus,-strain,-rowname)
+
+
+
+test_filters_strains=otu %>% filter(reference==T)%>%select(-rowname,-seq,-reference)%>%
+  melt(id.vars=c("strain","fungus")) %>%
+  group_by(fungus,variable)%>%summarise(value=sum(value))%>%ungroup()%>%
+  mutate(filter=if_else(grepl("2.2",variable),"2.2","8.8")) %>%
+  separate(variable,into=c("A","maxMismatch"),sep="[ ]",remove=F)%>%
+  mutate(maxMismatch=as.numeric(maxMismatch))
+
+ggplot(test_filters_strains,aes(x=maxMismatch,y=value,color=fungus))+
+  facet_grid(cols=vars(filter))+
+  geom_point()+
+  scale_y_continuous(trans="log10") +
+  geom_line()+
+  theme_bw()+
+  ylab("Number of reads")+
+  ggtitle("truncQ")+
+  theme(panel.grid.minor=element_blank())
+
+
+
 
