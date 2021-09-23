@@ -1,8 +1,8 @@
-**Code accompanying manuscript on DADA2 customization**
+#**Code accompanying manuscript on DADA2 customization**
 
-**File description**
+##**File description**
 
-**Preparation of UNITE database for BLAST**
+##**Preparation of UNITE database for BLAST**
 
 To convert a UNITE database (e.g. the full UNITE + INSD database) to a BLAST database:
 
