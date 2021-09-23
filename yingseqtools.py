@@ -152,3 +152,112 @@ def strip_barcode_addons(seqfile1,seqfile2,pdiffs=0,remove_bar_primer=False,fw_p
 	print 'no P2 match: '+str(n_noP2)+'('+str(round(float(n_noP2)/totalseqs*100,1))+'%)'
 	print 'Total Seqs: '+str(totalseqs)+' (100%)'
 
+def blastn(fastafile,db='refseq_rna',taxoutfile=None,evalue=10,max_target_seqs=50,outfmt='qseqid qlen sseqid sallseqid sgi sallgi sacc saccver sallacc slen qstart qend sstart send nident mismatch gapopen gaps ppos frames qframe sframe sblastnames sskingdoms stitle salltitles sstrand qcovs qcovhsp evalue bitscore score length pident sscinames scomnames staxids'):
+	#command line equivalent: blastn -query fastafile -db refseq_rna -evalue 10 -max_target_seqs 50 -out taxoutfile -outfmt "6 qseqid sseqid evalue bitscore score length pident sscinames"
+	#performs blastn on fasta file
+	names_file = ref.names_file
+	nodes_file = ref.nodes_file
+	merged_file = ref.merged_file
+
+	assert re.search('.(fasta|fna)$',fastafile), 'YTError: sequence file does not end in fasta!'
+	#assert fastafile.endswith('fasta'), 'YTError: sequence file does not end in fasta!'
+	assert db in ref.blastdb_list, 'YTError, blast db not found locally!'
+	if taxoutfile is None:
+		outfile = fastafile + '.blastn.' + db + '.txt'
+	else:
+		outfile = taxoutfile
+	outfile0 = outfile + '.temp'
+	logfile = outfile + '.log'
+	print 'Running blast....'
+	blastn_cline = NcbiblastnCommandline(query=fastafile, db=db, evalue=evalue, max_target_seqs=max_target_seqs, outfmt='"6 '+outfmt+'"', out=outfile0)
+	#print blastn_cline #look at it, will print: blastn -out "C:\Users\taury\Desktop\Patric Files\cbotoutput2.xml" -outfmt 5 -query "C:\Users\taury\Desktop\Patric Files\cbot.txt" -db refseq_genomic -evalue 0.001
+	print 'Running blastn:', fastafile
+	stdout, stderr = blastn_cline() #run it (might take a while)
+	#read in taxonomy
+	print 'Calculating full taxonomy....'
+	tax = {}
+	with open(nodes_file,'rb') as nodes:
+		for line in nodes:
+			values = line.split('\t|\t')
+			taxid = long(values[0])
+			parentid = long(values[1])
+			rank = values[2]
+			division = values[4]
+			tax[str(taxid)] = {'parentid':parentid,'rank':rank,'division':division}
+	with open(names_file,'rb') as names:
+		for line in names:
+			values = line.split('\t|\t')
+			taxid = long(values[0])
+			taxname = values[1]
+			taxnameclass = re.sub('\t\|\n','',values[3])
+			if taxnameclass=='scientific name':
+				tax[str(taxid)]['taxname'] = taxname
+
+	with open(merged_file,'rb') as merged:
+		for line in merged:
+			values = line.split('\t|\t')
+			oldtaxid = values[0]
+			newtaxid = re.sub('\t\|\n','',values[1])
+			try:
+				tax[str(oldtaxid)] = tax[str(newtaxid)]
+			except KeyError as e:
+				print 'YTError: Encountered merged taxid ',oldtaxid,', but unable to find new taxid, ',newtaxid,'.'
+				raise
+
+	#put header on file.
+	def getlineage(taxid,abbrev=False):
+		if abbrev:
+			full_lineage = getlineage(taxid).split('|')
+			#levels = ['[superkingdom]','[phylum]','[class]','[order]','[family]','[genus]','[species]']
+			levels = ['[superkingdom]','[kingdom]','[subkingdom]','[superphylum]','[phylum]','[subphylum]','[superclass]','[class]','[subclass]','[infraclass]','[superorder]','[order]','[suborder]','[infraorder]','[parvorder]','[superfamily]','[family]','[subfamily]','[tribe]','[subtribe]','[genus]','[subgenus]','[species group]','[species subgroup]','[species]','[subspecies]','[varietas]','[forma]']
+			abbrev_lineage = []
+			for lvl in levels:
+				taxhits = [t for t in full_lineage if t.endswith(lvl)]
+				if len(taxhits)==0:
+					abbrev_lineage.append('xxxx'+lvl)
+				elif len(taxhits)==1:
+					abbrev_lineage.append(taxhits[0])
+				else:
+					raise Exception('YTError: in getlineage, more than one hit for a level:',taxid,taxhits,full_lineage) 
+					#abbrev_lineage.append(taxhits[0])
+			return('|'.join(abbrev_lineage))
+		
+		try:
+			taxon = tax[str(taxid)]
+		except KeyError as e:
+			print 'YTError: taxid',taxid,'not found! Consider updating the taxdmp files.'
+			raise
+		name = taxon['taxname'] + '[' + taxon['rank'] + ']'
+		parentid = taxon['parentid']
+		rank = taxon['rank']
+		if long(taxid) == 1:
+			return name 
+		else:
+			return getlineage(parentid) + '|' + name
+	fields = outfmt.split(' ')
+	assert 'staxids' in fields, 'YTError: could not find [staxids] field in output!'
+	taxid_pos = long([i for i,f in enumerate(fields) if f=='staxids'][0])
+	header = '\t'.join(fields)
+	out0 = open(outfile0,'rb')
+	out = open(outfile,'wb')
+	out.write(header+'\ttaxonomy\tfulltaxonomy\n')
+	for line in out0:
+		values = re.sub('\n$','',line).split('\t')
+		taxid = values[taxid_pos]
+		taxid = taxid.split(';')[0]
+		shorttax = getlineage(taxid,abbrev=True)
+		fulltax = getlineage(taxid)
+		values.append(shorttax)
+		values.append(fulltax)
+		newline = '\t'.join(values) + '\n'
+		out.write(newline)
+	out0.close()
+	out.close()
+	os.remove(outfile0)
+	with open(logfile,'wb') as log:
+		log.write('Input Sequence File: '+fastafile+'\n')
+		log.write('BLASTN Results: '+outfile+'\n')
+		log.write('Database (db): '+db+'\n')
+		log.write('E-value threshold: '+str(evalue)+'\n')
+		log.write('Number of hits/seq (max_target_seqs): '+str(max_target_seqs)+'\n')
+	print 'Done!'

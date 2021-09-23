@@ -4,7 +4,7 @@
 
 ## **Preparation of UNITE database for BLAST**
 
-To convert a UNITE database (e.g. the full UNITE + INSD database) to a BLAST database:
+To convert a UNITE database to a BLAST database:
 
 ```
 cat unite_2020_general.fasta | perl -ne 's/[^\x00-\x7F]+/ /g; print;' >unite_2020_general_no_ascii.fasta

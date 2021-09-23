@@ -41,7 +41,7 @@ tax.blast.full <- read.blastn.unite("asv_seqs.fasta.blastn.unite.txt",tax_table=
 
 #######If you want to use BLAST + NT
 
-system('blastn -query refseqs.fasta -db nt -evalue 10 -max_target_seqs 50 -out refseqs.fasta.blastn.nt.txt -outfmt "6 qseqid qlen sseqid slen qstart qend sstart send nident mismatch gapopen gaps ppos frames qframe sframe qcovs qcovhsp evalue bitscore score length pident"')
+system("blastn.py refseqs.fasta -db nt -taxoutfile refseqs.fasta.blastn.nt.txt -max_target_seqs 50")
 tax_blast <- read.blastn.nt("asv_seqs.fasta.blastn.nt.txt")
 tax.blast.full <- read.blastn.unite("asv_seqs.fasta.blastn.nt.txt",tax_table=FALSE)
 
