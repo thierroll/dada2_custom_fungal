@@ -6,6 +6,8 @@ library(stringr)
 library(yingtools2)
 library(ggplot2)
 library(gridExtra)
+library(ShortRead)
+library(gtools)
 rm(list=ls())
 
 pooldir <- "/run/user/1000/gvfs/smb-share:server=skimcs,share=castoricenter/Thierry/benchmark_single/sample_nofilter"
@@ -105,7 +107,7 @@ trace.tax <- dada %>% left_join(refseq,by=c("asv"="seq"))%>%
   dplyr::rename(asv.fungus=fungus,asv.strain=strain) %>%
   mutate(asv.fungus=if_else((status=="5. accepted sequence"&is.na(asv.fungus)),"other",as.character(asv.fungus)))
 
-#########FIGURE S1,S2,
+#########FIGUREs
 
 plotqual <- function(tbl,title) {
   library(ShortRead)
@@ -161,7 +163,19 @@ shell.exec("full_quality_nofilterS1.pdf")
 
 
 
+#####calculate maxEE per read
+str(trace.tax$qual1)
+
+errorprob=function(x){
+  e=10^((-x+33)/10)
+  return(e)
+}
 
 
+trace_tax = trace.tax %>% filter(is.na(qual1)==F)%>%mutate(new1=asc(qual1,simplify = F)) %>% mutate(errprob1=lapply(new1,errorprob))%>% 
+  mutate(ee1=as.numeric(lapply(errprob1,sum)))%>%
+  filter(is.na(qual2)==F)%>%mutate(new2=asc(qual2,simplify = F)) %>% mutate(errprob2=lapply(new2,errorprob))%>% 
+  mutate(ee2=as.numeric(lapply(errprob2,sum)))
 
 
+trace_tax%>%group_by(asv.fungus)%>%summarise(med.ee1=median(ee1),med.ee2=median(ee2))
