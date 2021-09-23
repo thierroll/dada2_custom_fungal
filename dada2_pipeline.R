@@ -34,11 +34,27 @@ taxa_names(phy.dada2) <- paste0("ASV_",seq_along(taxa_names(phy.dada2)),";seqs="
 ## blast classification
 writeXStringSet(refseq(phy.dada2),"asv_seqs.fasta")
 
-system('blastn -query asv_seqs.fasta -db unite_2020_no_ascii.fasta -evalue 10 -max_target_seqs 50 -out asv_seqs.fasta.blastn.unite.txt -outfmt "6 qseqid qlen sseqid slen qstart qend sstart send nident mismatch gapopen gaps ppos frames qframe sframe qcovs qcovhsp evalue bitscore score length pident"')
+#######If you want to use BLAST + UNITE
+system('blastn -query refseqs.fasta -db unite_2020_no_ascii.fasta -evalue 10 -max_target_seqs 50 -out asv_seqs.fasta.blastn.unite.txt -outfmt "6 qseqid qlen sseqid slen qstart qend sstart send nident mismatch gapopen gaps ppos frames qframe sframe qcovs qcovhsp evalue bitscore score length pident"')
 tax_blast <- read.blastn.unite("asv_seqs.fasta.blastn.unite.txt")
 tax.blast.full <- read.blastn.unite("asv_seqs.fasta.blastn.unite.txt",tax_table=FALSE)
-		
+
+#######If you want to use BLAST + NT
+
+system('blastn -query refseqs.fasta -db nt -evalue 10 -max_target_seqs 50 -out refseqs.fasta.blastn.nt.txt -outfmt "6 qseqid qlen sseqid slen qstart qend sstart send nident mismatch gapopen gaps ppos frames qframe sframe qcovs qcovhsp evalue bitscore score length pident"')
+tax_blast <- read.blastn.nt("asv_seqs.fasta.blastn.nt.txt")
+tax.blast.full <- read.blastn.unite("asv_seqs.fasta.blastn.nt.txt",tax_table=FALSE)
+
 tax_table(phy.dada2) <- set.tax(tax_blast)
+
+######If you want to use RDP + UNITE
+set.seed(100)
+
+unite.ref="PATH TO RESPECTIVE UNITE FASTA FILE"
+refseq=" READ IN THE RESPECTIVE FASTA FILE OF SEQUENCES YOU WANT TO HAVE ANNOTATED"
+seq.unite=as.character(refseq$seq)
+taxa=assignTaxonomy(seq.unite,unite.ref,tryRC=T,multithread = 4,outputBootstraps  = T)
+taxa.unite_s=data.frame(taxa$tax,taxa$boot)
 
 ## combine tracking
 trace_files <- c("SAMPLE_1/trace_list.rds",
